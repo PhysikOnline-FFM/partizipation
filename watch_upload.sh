@@ -3,12 +3,14 @@
 #
 # This script watches the local folder for files with the ending in 'file_endings'
 # and uploads them to a server specified in 'server'.
+# Using fswatch it only uploads files which were created inside the directory
+# while the script was running.
 #
 
 
-server_name="riedberg.tv"   # include login name if necessary
-target_directory="/home/riedbergtv/www.riedberg.tv/partizipation/"
-file_endings=( "jpg" "png" )
+server_name="riedbergtv@riedberg.tv"   # include login name if necessary
+target_directory="/home/riedbergtv/www.riedberg.tv/partizipation"
+file_endings="jpg|png"                 # | separated
 
 is_in_array ()
 {
@@ -30,11 +32,11 @@ upload_file ()
 
 clean_up ()
 {
+    # Maybe add some cleaning up?
     printf "\nBye"
 }
 
 files_uploaded=()
-script_name=$( echo $0 | sed 's/.\///g' )
 
 trap clean_up EXIT
 
@@ -53,41 +55,36 @@ if [[ $status == "ok" ]]
 then
     printf "Ok\n"
 else
-    printf "\nConnection not available, did you set up a ssh key for this machine?\n"
+    printf "\nConnection is not available! Check your internet connection.\n"
+    printf "Did you set up a ssh key for this machine?\n"
     echo $status
     exit 1
 fi
 
 printf "${GREEN}Watching files...${NC}\n"
 
-while :
+# using fswatch to watch current directory
+# only watch for created files which match the include regex
+fswatch -0 -r --event Created -E --exclude ".*" --include ".*\.(${file_endings})$" .\
+| while read -d "" file
 do
-    for file in $( ls )
-    do
-        file_name=$( basename $file )
-        file_ending="${file_name##*.}"
+    file_name=$( basename $file )
 
-        is_in_array $file "${files_uploaded[@]}"
-        is_file_old=$?
+    is_in_array $file "${files_uploaded[@]}"
+    is_file_old=$?
 
-        is_in_array $file_ending ${file_endings[@]}
-        is_ending_correct=$?
+    if [[ $is_file_old == 0 ]]
+    then
+        upload_file $file
 
-        if [[ $is_file_old == 0 && $is_ending_correct == 1 ]]
+        if [[ $? != 0 ]]
         then
-            upload_file $file
-
-            if [[ $? != 0 ]]
-            then
-                printf "${RED}There was an error uploading ${file}!${NC}\n" >&2
-            else
-                files_uploaded=( ${files_uploaded[@]} $file )
-                printf "${GREEN}Watching files...${NC}\n"
-            fi
-        fi    
-    done
-
-    sleep 1
+            printf "${RED}There was an error uploading ${file}!${NC}\n" >&2
+        else
+            files_uploaded=( ${files_uploaded[@]} $file )
+            printf "${GREEN}Watching files...${NC}\n"
+        fi
+    fi
 done
 
 exit 0
